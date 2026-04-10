@@ -59,7 +59,7 @@ flowchart TD
     AH --> AB
     AD --> AI[Write contacts\nto MDM\n638751]
     AI --> AJ([Contract registered])
-
+```
 ## 2. Systems Flow — Integration Architecture
 
 ```mermaid
