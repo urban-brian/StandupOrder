@@ -139,7 +139,6 @@ flowchart TD
     P --> R{Dealer action}
     R -->|Retry| B
     R -->|Proceed with\nexisting data| Q
-```
 ## 4. VIN Correction Request Flow — Systems
 
 ```mermaid
@@ -154,20 +153,21 @@ sequenceDiagram
     SSP->>Dealer: Present remediation options (638744)
     Dealer->>SSP: Submit VIN correction request (638267)
 
-    SSP->>SP: Invoke stored procedure with:\n· VIN(s)\n· Proposed customer identity\n· Dealer ID\n· Proposal number
+    Note over SSP,SP: Payload includes VINs, proposed customer, dealer ID, proposal number
+    SSP->>SP: Invoke stored procedure
     Note over SSP,SP: Stored procedure confirmed via spike 638621
 
     alt Stored procedure succeeds
         SP-->>SSP: Success response
-        SSP->>DB: Log submission (timestamp, VINs,\ncustomer, dealer, proposal, response)
-        SSP->>Dealer: Confirm request submitted;\ninform registration remains blocked
+        SSP->>DB: Log submission (timestamp, VINs, customer, dealer, proposal, response)
+        SSP->>Dealer: Confirm submitted — registration remains blocked until MDM customer confirmed
         SP->>WAT: Routes correction request
-        WAT-->>WAT: Verifies VIN–customer\nrelationship in VIPS\n(out of SSP scope)
+        WAT-->>WAT: Verifies VIN-customer relationship in VIPS (out of SSP scope)
     else Stored procedure fails
         SP-->>SSP: Error response
-        SSP->>Dealer: Inform submission failed;\noffer retry or direct WAT contact
+        SSP->>Dealer: Submission failed — offer retry or direct WAT contact
     end
 
-    Note over Dealer,WAT: Registration stays blocked (634720)\nuntil valid MDM customer is confirmed.\nSSP does not poll for VIPS confirmation.
+    Note over Dealer,WAT: Registration stays blocked per 634720 until valid MDM customer confirmed. SSP does not poll for VIPS confirmation.
 ```
-
+```
