@@ -139,6 +139,8 @@ flowchart TD
     P --> R{Dealer action}
     R -->|Retry| B
     R -->|Proceed with\nexisting data| Q
+```
+
 ## 4. VIN Correction Request Flow — Systems
 
 ```mermaid
