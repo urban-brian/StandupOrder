@@ -2,6 +2,21 @@ import fs from 'fs';
 import path from 'path';
 
 const INTER_PDF_DELAY_MS = 1000;
+const MANIFEST_FILE = 'exported-urls.json';
+
+export function loadManifest(outputDir) {
+  const manifestPath = path.join(outputDir, MANIFEST_FILE);
+  try {
+    return new Set(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveManifest(outputDir, exportedUrls) {
+  const manifestPath = path.join(outputDir, MANIFEST_FILE);
+  fs.writeFileSync(manifestPath, JSON.stringify([...exportedUrls], null, 2));
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -15,7 +30,7 @@ function sanitizeFilename(name) {
     .slice(0, 200);                  // cap length
 }
 
-export async function exportPdfs(page, recipes, outputDir) {
+export async function exportPdfs(page, recipes, outputDir, exportedUrls) {
   fs.mkdirSync(outputDir, { recursive: true });
 
   const total = recipes.length;
@@ -53,6 +68,8 @@ export async function exportPdfs(page, recipes, outputDir) {
         margin: { top: '0.75in', bottom: '0.75in', left: '0.75in', right: '0.75in' },
       });
 
+      exportedUrls.add(recipe.sourceUrl);
+      saveManifest(path.dirname(outputDir), exportedUrls);
       process.stdout.write('done\n');
     } catch (err) {
       process.stdout.write(`ERROR: ${err.message}\n`);

@@ -2,7 +2,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { launchBrowser } from './src/browser.js';
 import { scrapeRecipeBox } from './src/scraper.js';
-import { exportPdfs } from './src/pdf-exporter.js';
+import { exportPdfs, loadManifest } from './src/pdf-exporter.js';
 import { exportPaprika } from './src/paprika.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,17 +18,19 @@ async function main() {
     const { browser: b, page } = await launchBrowser();
     browser = b;
 
-    // 1. Scrape all recipe data from the Recipe Box
-    const recipes = await scrapeRecipeBox(page);
+    // Load manifest of already-exported recipe URLs
+    const exportedUrls = loadManifest(OUTPUT_DIR);
+
+    // 1. Scrape only recipes not yet exported
+    const recipes = await scrapeRecipeBox(page, exportedUrls);
 
     if (recipes.length === 0) {
-      console.log('No recipes found in your Recipe Box. Exiting.');
       await browser.close();
       return;
     }
 
     // 2. Export each recipe as an individual PDF
-    await exportPdfs(page, recipes, PDF_DIR);
+    await exportPdfs(page, recipes, PDF_DIR, exportedUrls);
 
     // 3. Export all recipes as a .paprikarecipes archive
     await exportPaprika(recipes, PAPRIKA_DIR);

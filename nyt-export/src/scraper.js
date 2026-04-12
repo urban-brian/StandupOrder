@@ -1,58 +1,78 @@
 const RECIPE_BOX_URL = 'https://cooking.nytimes.com/recipe-box';
-const SCROLL_PAUSE_MS = 1500;
 const INTER_RECIPE_DELAY_MS = 1500;
+const PAGE_LOAD_WAIT_MS = 2000;
 
-// Selectors — NYT Cooking uses data-testid and semantic markup
 const RECIPE_CARD_LINK_SELECTOR = 'a[href^="/recipes/"]';
+const NEXT_PAGE_SELECTOR = 'a[aria-label="Next page"], a[rel="next"], a[href*="page="]:last-of-type';
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function scrollToBottom(page) {
-  let previousCount = 0;
-  let stableRounds = 0;
+function pageUrl(pageNum) {
+  return pageNum === 1 ? RECIPE_BOX_URL : `${RECIPE_BOX_URL}?page=${pageNum}`;
+}
 
-  while (stableRounds < 2) {
-    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-    await sleep(SCROLL_PAUSE_MS);
+async function getUrlsFromPage(page) {
+  return page.evaluate((sel) => {
+    const links = Array.from(document.querySelectorAll(sel));
+    return [...new Set(links.map((a) => a.href))];
+  }, RECIPE_CARD_LINK_SELECTOR);
+}
 
-    const currentCount = await page.evaluate(
-      (sel) => document.querySelectorAll(sel).length,
-      RECIPE_CARD_LINK_SELECTOR
-    );
-
-    if (currentCount === previousCount) {
-      stableRounds++;
-    } else {
-      stableRounds = 0;
-      previousCount = currentCount;
-    }
-  }
+async function hasNextPage(page) {
+  // Check for a visible "Next" pagination link
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    return !!el && el.offsetParent !== null;
+  }, NEXT_PAGE_SELECTOR);
 }
 
 async function collectRecipeUrls(page) {
-  console.log('Navigating to Recipe Box...');
-  await page.goto(RECIPE_BOX_URL, { waitUntil: 'networkidle2' });
+  const seen = new Set();
+  let pageNum = 1;
 
-  console.log('Scrolling to load all saved recipes...');
-  await scrollToBottom(page);
+  console.log('Collecting recipes from Recipe Box...');
 
-  const urls = await page.evaluate((sel) => {
-    const links = Array.from(document.querySelectorAll(sel));
-    const seen = new Set();
-    return links
-      .map((a) => a.href)
-      .filter((href) => {
-        if (seen.has(href)) return false;
-        seen.add(href);
-        return true;
-      });
-  }, RECIPE_CARD_LINK_SELECTOR);
+  while (true) {
+    const url = pageUrl(pageNum);
+    process.stdout.write(`  Page ${pageNum}: ${url} ... `);
+    await page.goto(url, { waitUntil: 'networkidle2' });
+    await sleep(PAGE_LOAD_WAIT_MS);
 
-  console.log(`Found ${urls.length} saved recipe(s).\n`);
+    const urls = await getUrlsFromPage(page);
+    if (urls.length === 0) {
+      process.stdout.write('no recipes found, stopping.\n');
+      break;
+    }
+
+    urls.forEach((u) => seen.add(u));
+    process.stdout.write(`${urls.length} recipes (total: ${seen.size})\n`);
+
+    // Try URL-based next page first
+    const nextUrl = pageUrl(pageNum + 1);
+    const nextExists = await page.evaluate((sel) => !!document.querySelector(sel), NEXT_PAGE_SELECTOR);
+
+    // Also try loading page N+1 directly and see if it has recipes
+    if (!nextExists) {
+      // Speculatively load next page to confirm it exists
+      await page.goto(nextUrl, { waitUntil: 'networkidle2' });
+      await sleep(PAGE_LOAD_WAIT_MS);
+      const nextUrls = await getUrlsFromPage(page);
+      if (nextUrls.length === 0) break;
+      nextUrls.forEach((u) => seen.add(u));
+      process.stdout.write(`  Page ${pageNum + 1} (speculative): ${nextUrls.length} recipes (total: ${seen.size})\n`);
+      pageNum += 2;
+    } else {
+      pageNum++;
+    }
+  }
+
+  const urls = [...seen];
+  console.log(`\nFound ${urls.length} saved recipe(s) across ${pageNum - 1} page(s).\n`);
   return urls;
 }
+
 
 async function extractRecipeData(page, url, index, total) {
   process.stdout.write(`[${index}/${total}] Scraping: ${url} ... `);
@@ -139,12 +159,20 @@ async function extractRecipeData(page, url, index, total) {
   }
 }
 
-export async function scrapeRecipeBox(page) {
+export async function scrapeRecipeBox(page, alreadyExported = new Set()) {
   const urls = await collectRecipeUrls(page);
 
+  const newUrls = urls.filter((url) => !alreadyExported.has(url));
+  const skipped = urls.length - newUrls.length;
+  if (skipped > 0) console.log(`Skipping ${skipped} already-exported recipe(s).\n`);
+  if (newUrls.length === 0) {
+    console.log('All recipes already exported.');
+    return [];
+  }
+
   const recipes = [];
-  for (let i = 0; i < urls.length; i++) {
-    const data = await extractRecipeData(page, urls[i], i + 1, urls.length);
+  for (let i = 0; i < newUrls.length; i++) {
+    const data = await extractRecipeData(page, newUrls[i], i + 1, newUrls.length);
     if (data) recipes.push(data);
   }
 

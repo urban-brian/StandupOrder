@@ -1,86 +1,70 @@
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import readline from 'readline';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 
+puppeteer.use(StealthPlugin());
+
+const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const PROFILE_DIR = path.join(os.homedir(), '.nyt-export-profile');
 const NYT_COOKING_URL = 'https://cooking.nytimes.com';
-
-// Selector present only when logged in (the "Recipe Box" nav link)
-const LOGGED_IN_SELECTOR = 'a[href="/recipe-box"]';
-const LOGIN_CHECK_INTERVAL_MS = 2000;
-const LOGIN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const LOGGED_IN_SELECTOR = '[href="/recipe-box"], [href*="recipe-box"]';
 
 function waitForEnter(prompt) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
-    rl.question(prompt, () => {
-      rl.close();
-      resolve();
-    });
+    rl.question(prompt, () => { rl.close(); resolve(); });
   });
 }
 
-async function waitForLogin(page) {
-  console.log('\nWaiting for you to log in to NYT Cooking...');
-  console.log('(You can also press Enter here once you are logged in)\n');
-
-  let resolved = false;
-
-  const enterPromise = waitForEnter('Press Enter once logged in: ').then(() => {
-    resolved = true;
-  });
-
-  const pollPromise = new Promise((resolve, reject) => {
-    const start = Date.now();
-    const interval = setInterval(async () => {
-      if (resolved) {
-        clearInterval(interval);
-        resolve();
-        return;
-      }
-      if (Date.now() - start > LOGIN_TIMEOUT_MS) {
-        clearInterval(interval);
-        reject(new Error('Timed out waiting for login (5 minutes). Please try again.'));
-        return;
-      }
-      try {
-        const found = await page.$(LOGGED_IN_SELECTOR);
-        if (found) {
-          resolved = true;
-          clearInterval(interval);
-          resolve();
-        }
-      } catch {
-        // page may be navigating; ignore and retry
-      }
-    }, LOGIN_CHECK_INTERVAL_MS);
-  });
-
-  await Promise.race([enterPromise, pollPromise]);
-  console.log('\nLogin detected. Starting export...\n');
+async function isLoggedIn(page) {
+  try {
+    await page.goto(NYT_COOKING_URL, { waitUntil: 'networkidle2', timeout: 15000 });
+    return !!(await page.$(LOGGED_IN_SELECTOR));
+  } catch {
+    return false;
+  }
 }
 
 export async function launchBrowser() {
+  const firstRun = !fs.existsSync(PROFILE_DIR);
+
+  // First run: open headed so the user can log in
+  if (firstRun) {
+    console.log('First run — opening Chrome so you can log in to NYT Cooking...\n');
+  }
+
   const browser = await puppeteer.launch({
-    headless: false,
-    defaultViewport: { width: 1280, height: 900 },
+    executablePath: CHROME_PATH,
+    userDataDir: PROFILE_DIR,
+    headless: firstRun ? false : 'new',
+    defaultViewport: firstRun ? null : { width: 1280, height: 900 },
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
   const page = await browser.newPage();
 
-  // Mimic a real browser to reduce bot-detection risk
-  await page.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-  );
-
-  console.log(`Opening NYT Cooking at ${NYT_COOKING_URL} ...`);
-  await page.goto(NYT_COOKING_URL, { waitUntil: 'domcontentloaded' });
-
-  // Check if already logged in
-  const alreadyLoggedIn = await page.$(LOGGED_IN_SELECTOR);
-  if (!alreadyLoggedIn) {
-    await waitForLogin(page);
+  if (firstRun) {
+    await page.goto(NYT_COOKING_URL, { waitUntil: 'domcontentloaded' });
+    await waitForEnter('Log in to NYT Cooking, then press Enter here to start the export: ');
+    const loggedIn = await isLoggedIn(page);
+    if (!loggedIn) {
+      await browser.close();
+      // Remove profile so next run tries again
+      fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
+      throw new Error('Login not detected. Please re-run and log in before pressing Enter.');
+    }
+    console.log('\nLogin saved. Future runs will be fully headless.\n');
   } else {
-    console.log('Already logged in. Starting export...\n');
+    console.log('Using saved session (headless)...\n');
+    const loggedIn = await isLoggedIn(page);
+    if (!loggedIn) {
+      await browser.close();
+      fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
+      throw new Error('Saved session expired. Re-run to log in again.');
+    }
   }
 
   return { browser, page };
