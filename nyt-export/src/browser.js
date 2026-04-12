@@ -24,8 +24,10 @@ function waitForEnter(prompt) {
 
 async function isLoggedIn(page) {
   try {
-    await page.goto(NYT_COOKING_URL, { waitUntil: 'networkidle2', timeout: 15000 });
-    return !!(await page.$(LOGGED_IN_SELECTOR));
+    await page.goto(NYT_COOKING_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    // NYT nav is client-side rendered — wait for the element rather than relying on networkidle2
+    await page.waitForSelector(LOGGED_IN_SELECTOR, { timeout: 8000 });
+    return true;
   } catch {
     return false;
   }
@@ -117,8 +119,10 @@ async function launchLocalBrowser() {
     const loggedIn = await isLoggedIn(page);
     if (!loggedIn) {
       await browser.close();
-      fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
-      throw new Error('Saved session expired. Re-run to log in again.');
+      throw new Error(
+        'Saved session has expired. Delete the profile and re-run to log in again:\n' +
+        `  rm -rf "${PROFILE_DIR}"`
+      );
     }
   }
 
