@@ -1,109 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Random Image Display</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>What's for Dinner?</title>
+  <link rel="stylesheet" href="styles.css">
+  <meta name="description" content="Family meal planning — vote, plan, and cook together.">
+  <meta name="theme-color" content="#C8553D">
+  <!-- PWA-ready -->
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍽️</text></svg>">
 </head>
-
 <body>
-    <div class="controls">
-        <div class="header">Who's here?</div>
-        <div class="checkbox-list" id="checkbox-list"></div>
 
-        <button onclick="moveHighlight()">Who's next?</button>
+  <!-- Top Navigation -->
+  <nav class="top-nav hidden" id="app-nav">
+    <div class="top-nav-inner">
+      <div class="nav-brand">
+        🍽️ <span>Dinner?</span>
+      </div>
+      <div class="nav-user">
+        <strong id="nav-user-name"></strong>
+        <button class="nav-signout" id="signout-btn" title="Sign out">↩</button>
+      </div>
     </div>
-    <div class="grid-container" id="grid-container"></div>
+  </nav>
 
-    <script>
-        let imageObjects = [
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=Carl.willgaard@international.com", name: "Carl" },
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=brian.urban@international.com", name: "Brian" },
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=Naveen.Suryadevara@international.com", name: "Naveen" },
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=Alessandra.Ossanna@international.com", name: "Ale" },
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=Johan.Granlund@international.com", name: "Johan" },
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=Umakanth.Vellanki@international.com", name: "UK" },
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=sara.cooper@international.com", name: "Sara" },
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=aubree.murray@international.com", name: "Aubree" },
-            { src: "https://navistarinc.sharepoint.com/_layouts/15/userphoto.aspx?AccountName=amish.shah@international.com", name: "Amish" }
-        ];
+  <!-- Main content area (views render here) -->
+  <main class="app-shell" id="app-content" role="main"></main>
 
-        let currentHighlightIndex = 0;
+  <!-- Bottom Navigation (hidden on desktop via CSS) -->
+  <nav class="bottom-nav hidden" id="bottom-nav" aria-label="Main navigation">
+    <a href="#/vote" aria-label="Vote">
+      <span class="nav-icon">🗳️</span>
+      Vote
+    </a>
+    <a href="#/plan" aria-label="This week's plan">
+      <span class="nav-icon">📅</span>
+      Plan
+    </a>
+    <a href="#/suggest" aria-label="Suggest a meal">
+      <span class="nav-icon">💬</span>
+      Suggest
+    </a>
+    <a href="#/admin" aria-label="Admin" data-admin-only style="display:none;">
+      <span class="nav-icon">⚙️</span>
+      Admin
+    </a>
+  </nav>
 
-        function createCheckboxList() {
-            const checkboxList = document.getElementById('checkbox-list');
-            imageObjects.forEach((imageObject, index) => {
-                const checkboxContainer = document.createElement('div');
-                checkboxContainer.className = 'checkbox-container'; // Add this line
+  <!-- Toast container (js/ui.js appends toasts here) -->
+  <div class="toast-container" aria-live="polite"></div>
 
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.id = `checkbox-${index}`;
-                checkbox.checked = true;
-                checkbox.addEventListener('change', shuffleAndDisplayImages);
-
-                const label = document.createElement('label');
-                label.htmlFor = `checkbox-${index}`;
-                label.textContent = imageObject.name;
-
-                checkboxContainer.appendChild(checkbox);
-                checkboxContainer.appendChild(label);
-                checkboxList.appendChild(checkboxContainer);
-            });
-        }
-
-        function shuffleAndDisplayImages() {
-            currentHighlightIndex = 0; // Reset the highlight index to 0
-
-            const selectedImages = imageObjects.filter((_, index) => {
-                return document.getElementById(`checkbox-${index}`).checked;
-            });
-
-            selectedImages.sort(() => Math.random() - 0.5);
-
-            const gridContainer = document.getElementById('grid-container');
-            gridContainer.innerHTML = ''; // Clear previous content
-
-            selectedImages.forEach((imageObject, index) => {
-                let container = document.createElement("div");
-                container.className = "image-container";
-
-                let indexLabel = document.createElement("div");
-                indexLabel.className = "index";
-                if (index === currentHighlightIndex) {
-                    indexLabel.classList.add("highlight");
-                }
-                indexLabel.textContent = `${index + 1}`;
-
-                let img = document.createElement("img");
-                img.src = imageObject.src;
-
-                let nameLabel = document.createElement("div");
-                nameLabel.className = "name";
-                nameLabel.textContent = imageObject.name;
-
-                container.appendChild(indexLabel);
-                container.appendChild(img);
-                container.appendChild(nameLabel);
-                gridContainer.appendChild(container);
-            });
-        }
-
-        function moveHighlight() {
-            const gridContainer = document.getElementById('grid-container');
-            const indexElements = gridContainer.getElementsByClassName('index');
-            if (indexElements.length > 0) {
-                indexElements[currentHighlightIndex].classList.remove('highlight');
-                currentHighlightIndex = (currentHighlightIndex + 1) % indexElements.length;
-                indexElements[currentHighlightIndex].classList.add('highlight');
-            }
-        }
-
-        createCheckboxList();
-        shuffleAndDisplayImages();
-    </script>
+  <!-- App entry point (ES module) -->
+  <script type="module" src="js/app.js"></script>
 </body>
-
 </html>

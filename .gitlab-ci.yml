@@ -1,0 +1,72 @@
+stages:
+  - deploy
+  - scrape
+
+# Deploy to GitLab Pages
+pages:
+  stage: deploy
+  image: alpine:latest
+  script:
+    - mkdir -p public
+    - cp index.html styles.css public/
+    - cp -r js public/js
+    - cp -r data public/data
+    - cp -r recipes public/recipes 2>/dev/null || true
+    # Ensure data directory exists in public
+    - mkdir -p public/data
+  artifacts:
+    paths:
+      - public
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Recipe scraper sync job — triggered via API or manually
+scrape-recipes:
+  stage: scrape
+  image: node:20-slim
+  variables:
+    NYT_EMAIL: $NYT_EMAIL
+    NYT_PASSWORD: $NYT_PASSWORD
+    GIT_STRATEGY: none
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git ca-certificates
+    - git config --global user.email "recipe-bot@meal-planner"
+    - git config --global user.name "Recipe Sync Bot"
+  script:
+    # Clone this repo with write access
+    - git clone "https://oauth2:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" /tmp/repo
+    - cd /tmp/repo
+    - git checkout ${CI_COMMIT_BRANCH:-main}
+
+    # Clone and run the recipe scraper
+    - git clone https://github.com/urban-brian/nyt-recipes-export.git /tmp/scraper
+    - cd /tmp/scraper
+    - npm ci --silent
+    # Run scraper — outputs JSON to stdout or file
+    # Adjust the command below to match the actual CLI interface
+    - node src/index.js --format json --output /tmp/scraped_recipes.json
+
+    # Merge into repo
+    - cd /tmp/repo
+    - node scripts/merge-recipes.js /tmp/scraped_recipes.json data/scraped_recipes.json
+
+    # Commit if changed
+    - |
+      if git diff --quiet data/scraped_recipes.json; then
+        echo "No new recipes found."
+      else
+        git add data/scraped_recipes.json
+        git commit -m "chore: weekly recipe sync $(date +%Y-%m-%d)"
+        git push origin ${CI_COMMIT_BRANCH:-main}
+        echo "Pushed new recipes."
+      fi
+  rules:
+    # Run when triggered via API (from the web app)
+    - if: $CI_PIPELINE_SOURCE == "api"
+    # Run when triggered via pipeline trigger token
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+    # Allow manual run from GitLab UI
+    - when: manual
+      allow_failure: true
+  timeout: 15 minutes
