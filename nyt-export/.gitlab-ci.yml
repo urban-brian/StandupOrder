@@ -1,0 +1,53 @@
+# NYT Cooking Recipe Exporter — GitLab CI
+#
+# Required CI/CD variable (Settings → CI/CD → Variables):
+#   NYT_COOKIE  — Raw Cookie header from a logged-in browser session at cooking.nytimes.com
+#                 How to get it:
+#                   1. Log in to cooking.nytimes.com in your browser
+#                   2. Open DevTools → Network tab → reload the page
+#                   3. Click any request to cooking.nytimes.com
+#                   4. In Request Headers, copy the full "Cookie" value
+#                 Mark the variable as "Masked" so it doesn't appear in job logs.
+#
+# Optional CI/CD variables:
+#   EXPORT_PDF=true  — Also generate PDFs (slow; off by default in CI)
+#
+# Trigger: manually via "Run pipeline" or on a schedule (e.g. weekly).
+# Artifacts: recipes.json + NYT-Recipes.paprikarecipes saved for 4 weeks.
+
+image: node:20-slim
+
+variables:
+  # Use system Chromium instead of puppeteer's bundled Chrome (~300 MB download)
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+  PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium"
+
+stages:
+  - export
+
+export-recipes:
+  stage: export
+  before_script:
+    # Install Chromium (pulls in all its system dependencies automatically)
+    - apt-get update -qq
+    - apt-get install -y -qq chromium --no-install-recommends
+    - cd nyt-export && npm ci
+  script:
+    - node index.js
+  artifacts:
+    name: "nyt-recipes-$CI_PIPELINE_IID"
+    paths:
+      - nyt-export/output/recipes.json
+      - nyt-export/output/NYT-Recipes.paprikarecipes
+      - nyt-export/output/pdfs/
+    expire_in: 4 weeks
+    when: always
+  cache:
+    key: "$CI_COMMIT_REF_SLUG-node"
+    paths:
+      - nyt-export/node_modules/
+  # Only run on a schedule or when triggered manually — not on every push
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - when: never

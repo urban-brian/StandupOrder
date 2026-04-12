@@ -12,6 +12,9 @@ const PROFILE_DIR = path.join(os.homedir(), '.nyt-export-profile');
 const NYT_COOKING_URL = 'https://cooking.nytimes.com';
 const LOGGED_IN_SELECTOR = '[href="/recipe-box"], [href*="recipe-box"]';
 
+// GitLab (and most CI systems) set CI=true automatically
+const IS_CI = process.env.CI === 'true';
+
 function waitForEnter(prompt) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
@@ -28,10 +31,63 @@ async function isLoggedIn(page) {
   }
 }
 
-export async function launchBrowser() {
+/**
+ * Parse a raw Cookie header string into Puppeteer cookie objects.
+ * e.g. "NYT-S=abc123; AUID=xyz; ..."
+ */
+function parseCookieString(cookieStr) {
+  return cookieStr
+    .split(';')
+    .map((pair) => {
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx === -1) return null;
+      const name = pair.slice(0, eqIdx).trim();
+      const value = pair.slice(eqIdx + 1).trim();
+      return { name, value, domain: '.nytimes.com', path: '/' };
+    })
+    .filter(Boolean);
+}
+
+async function launchCiBrowser() {
+  const cookieStr = process.env.NYT_COOKIE;
+  if (!cookieStr) {
+    throw new Error(
+      'CI mode requires the NYT_COOKIE environment variable.\n' +
+      'Set it in GitLab: Settings → CI/CD → Variables → NYT_COOKIE (mark as Masked)\n' +
+      'Value: copy the Cookie header from a logged-in browser session at cooking.nytimes.com'
+    );
+  }
+
+  const launchOptions = {
+    headless: true,
+    defaultViewport: { width: 1280, height: 900 },
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  };
+
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
+  const browser = await puppeteer.launch(launchOptions);
+  const page = await browser.newPage();
+  await page.setCookie(...parseCookieString(cookieStr));
+
+  console.log('Running in CI mode (headless). Verifying cookie auth...');
+  const loggedIn = await isLoggedIn(page);
+  if (!loggedIn) {
+    await browser.close();
+    throw new Error(
+      'Cookie authentication failed — NYT_COOKIE may be expired.\n' +
+      'Refresh it by copying a fresh Cookie header from cooking.nytimes.com in your browser.'
+    );
+  }
+  console.log('Cookie authentication successful.\n');
+  return { browser, page };
+}
+
+async function launchLocalBrowser() {
   const firstRun = !fs.existsSync(PROFILE_DIR);
 
-  // First run: open headed so the user can log in
   if (firstRun) {
     console.log('First run — opening Chrome so you can log in to NYT Cooking...\n');
   }
@@ -52,7 +108,6 @@ export async function launchBrowser() {
     const loggedIn = await isLoggedIn(page);
     if (!loggedIn) {
       await browser.close();
-      // Remove profile so next run tries again
       fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
       throw new Error('Login not detected. Please re-run and log in before pressing Enter.');
     }
@@ -68,4 +123,8 @@ export async function launchBrowser() {
   }
 
   return { browser, page };
+}
+
+export async function launchBrowser() {
+  return IS_CI ? launchCiBrowser() : launchLocalBrowser();
 }
