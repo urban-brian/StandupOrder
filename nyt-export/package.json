@@ -1,0 +1,13 @@
+{
+  "name": "nyt-recipes-export",
+  "version": "1.0.0",
+  "description": "Export NYT Cooking recipe box to PDF and Paprika format",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "puppeteer": "^22.0.0"
+  }
+}
