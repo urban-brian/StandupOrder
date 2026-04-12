@@ -1,10 +1,11 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { launchBrowser } from './src/browser.js';
-import { scrapeRecipeBox } from './src/scraper.js';
+import { collectRecipeUrls, scrapeRecipeData } from './src/scraper.js';
 import { exportPdfs, loadManifest } from './src/pdf-exporter.js';
 import { exportPaprika } from './src/paprika.js';
 import { exportJson } from './src/json-exporter.js';
+import { cleanupDeleted } from './src/cleanup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = path.join(__dirname, 'output');
@@ -22,31 +23,43 @@ async function main() {
     const { browser: b, page } = await launchBrowser();
     browser = b;
 
-    // Load manifest of already-exported recipe URLs
+    // 1. Collect all current recipe URLs from the box (single fetch)
+    const currentUrls = await collectRecipeUrls(page);
+    const currentSet = new Set(currentUrls);
+
+    // 2. Remove anything that was previously exported but is no longer in the box
+    cleanupDeleted(currentSet, OUTPUT_DIR);
+
+    // 3. Scrape only recipes not yet exported
     const exportedUrls = loadManifest(OUTPUT_DIR);
+    const newUrls = currentUrls.filter((url) => !exportedUrls.has(url));
 
-    // 1. Scrape only recipes not yet exported
-    const recipes = await scrapeRecipeBox(page, exportedUrls);
-
-    if (recipes.length === 0) {
-      await browser.close();
+    if (newUrls.length === 0) {
+      console.log('All recipes are up to date.');
       return;
     }
 
-    // 2. Always export JSON
+    const skipped = currentUrls.length - newUrls.length;
+    if (skipped > 0) console.log(`Skipping ${skipped} already-exported recipe(s).\n`);
+
+    const recipes = await scrapeRecipeData(page, newUrls);
+
+    if (recipes.length === 0) return;
+
+    // 4. Export JSON (merges with existing)
     exportJson(recipes, OUTPUT_DIR);
 
-    // 3. Export PDFs (always locally; opt-in via EXPORT_PDF=true in CI)
+    // 5. Export PDFs (always locally; opt-in via EXPORT_PDF=true in CI)
     if (EXPORT_PDF) {
       await exportPdfs(page, recipes, PDF_DIR, exportedUrls);
     }
 
-    // 4. Export Paprika archive
+    // 6. Export Paprika archive
     await exportPaprika(recipes, OUTPUT_DIR);
 
     // Summary
     console.log('=== Export complete ===');
-    console.log(`  Recipes exported : ${recipes.length}`);
+    console.log(`  New recipes      : ${recipes.length}`);
     console.log(`  JSON             : ${path.join(OUTPUT_DIR, 'recipes.json')}`);
     if (EXPORT_PDF) {
       console.log(`  PDFs saved to    : ${PDF_DIR}`);

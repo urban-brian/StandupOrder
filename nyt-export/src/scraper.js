@@ -159,23 +159,16 @@ async function extractRecipeData(page, url, index, total) {
   }
 }
 
-export async function scrapeRecipeBox(page, alreadyExported = new Set()) {
-  const urls = await collectRecipeUrls(page);
-
-  const newUrls = urls.filter((url) => !alreadyExported.has(url));
-  const skipped = urls.length - newUrls.length;
-  if (skipped > 0) console.log(`Skipping ${skipped} already-exported recipe(s).\n`);
-  if (newUrls.length === 0) {
-    console.log('All recipes already exported.');
-    return [];
-  }
-
+/**
+ * Scrape recipe data for a specific list of URLs.
+ * Use this when you already have the URL list (avoids re-fetching the recipe box).
+ */
+export async function scrapeRecipeData(page, urls) {
   const recipes = [];
-  for (let i = 0; i < newUrls.length; i++) {
-    const data = await extractRecipeData(page, newUrls[i], i + 1, newUrls.length);
+  for (let i = 0; i < urls.length; i++) {
+    const data = await extractRecipeData(page, urls[i], i + 1, urls.length);
     if (data) recipes.push(data);
   }
-
   return recipes;
 }
 

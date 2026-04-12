@@ -1,12 +1,22 @@
 import fs from 'fs';
 import path from 'path';
 
-export function exportJson(recipes, outputDir) {
+export function exportJson(newRecipes, outputDir) {
   fs.mkdirSync(outputDir, { recursive: true });
 
   const outPath = path.join(outputDir, 'recipes.json');
-  fs.writeFileSync(outPath, JSON.stringify(recipes, null, 2), 'utf-8');
 
-  console.log(`JSON export saved to: ${outPath} (${recipes.length} recipe(s))\n`);
+  // Merge with any previously exported recipes
+  let existing = [];
+  try {
+    existing = JSON.parse(fs.readFileSync(outPath, 'utf-8'));
+  } catch {}
+
+  const existingUrls = new Set(existing.map((r) => r.sourceUrl));
+  const toAdd = newRecipes.filter((r) => !existingUrls.has(r.sourceUrl));
+  const merged = [...existing, ...toAdd];
+
+  fs.writeFileSync(outPath, JSON.stringify(merged, null, 2), 'utf-8');
+  console.log(`JSON updated: ${outPath} (${toAdd.length} added, ${merged.length} total)\n`);
   return outPath;
 }
