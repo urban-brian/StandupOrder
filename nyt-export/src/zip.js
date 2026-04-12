@@ -4,8 +4,6 @@
  * is already gzip-compressed before being added.
  */
 
-import { createHash } from 'crypto';
-
 function crc32(buf) {
   // Standard CRC-32 table
   if (!crc32._table) {
