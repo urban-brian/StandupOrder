@@ -29,7 +29,14 @@ function headers(token) {
 
 // --- File reading ---
 export async function readFile(filePath) {
-  const { token, projectId, branch = 'main' } = cfg();
+  const s = getSettings();
+  if (!s.token || !s.projectId) {
+    // Local fallback — works when running via file server without GitLab configured
+    const res = await fetch(filePath);
+    if (!res.ok) return null;
+    return res.text();
+  }
+  const { token, projectId, branch = 'main' } = s;
   const url = `${apiBase(projectId)}/repository/files/${encodeURIComponent(filePath)}/raw?ref=${branch}`;
   const res = await fetch(url, { headers: { 'PRIVATE-TOKEN': token } });
   if (res.status === 404) return null;
