@@ -12,8 +12,8 @@ export function exportJson(newRecipes, outputDir) {
     existing = JSON.parse(fs.readFileSync(outPath, 'utf-8'));
   } catch {}
 
-  const existingUrls = new Set(existing.map((r) => r.sourceUrl));
-  const toAdd = newRecipes.filter((r) => !existingUrls.has(r.sourceUrl));
+  const existingUrls = new Set(existing.map((r) => r.source_url));
+  const toAdd = newRecipes.filter((r) => !existingUrls.has(r.source_url));
   const merged = [...existing, ...toAdd];
 
   fs.writeFileSync(outPath, JSON.stringify(merged, null, 2), 'utf-8');

@@ -22,12 +22,12 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function sanitizeFilename(name) {
+export function sanitizeFilename(name) {
   return name
-    .replace(/[/\\:*?"<>|]/g, '-')  // replace illegal filename chars
+    .replace(/[/\\:*?"<>|]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 200);                  // cap length
+    .slice(0, 200);
 }
 
 export async function exportPdfs(page, recipes, outputDir, exportedUrls) {
@@ -38,27 +38,18 @@ export async function exportPdfs(page, recipes, outputDir, exportedUrls) {
 
   for (let i = 0; i < total; i++) {
     const recipe = recipes[i];
-    const safeTitle = sanitizeFilename(recipe.title || `recipe-${i + 1}`);
+    const safeTitle = sanitizeFilename(recipe.name || `recipe-${i + 1}`);
     const filename = `${safeTitle}.pdf`;
     const filePath = path.join(outputDir, filename);
 
     process.stdout.write(`[${i + 1}/${total}] Saving "${filename}" ... `);
 
     try {
-      await page.goto(recipe.sourceUrl, { waitUntil: 'networkidle2' });
+      await page.goto(recipe.source_url, { waitUntil: 'networkidle2' });
 
-      // Dismiss any cookie/paywall banners before printing
       await page.evaluate(() => {
-        const selectors = [
-          '[id*="modal"]',
-          '[class*="modal"]',
-          '[class*="paywall"]',
-          '[class*="overlay"]',
-          '[class*="cookie-banner"]',
-        ];
-        selectors.forEach((sel) => {
-          document.querySelectorAll(sel).forEach((el) => el.remove());
-        });
+        ['[id*="modal"]', '[class*="modal"]', '[class*="paywall"]', '[class*="overlay"]', '[class*="cookie-banner"]']
+          .forEach((sel) => document.querySelectorAll(sel).forEach((el) => el.remove()));
       });
 
       await page.pdf({
@@ -68,7 +59,10 @@ export async function exportPdfs(page, recipes, outputDir, exportedUrls) {
         margin: { top: '0.75in', bottom: '0.75in', left: '0.75in', right: '0.75in' },
       });
 
-      exportedUrls.add(recipe.sourceUrl);
+      // Record the relative path so it appears in recipes.json
+      recipe.pdf_path = `pdfs/${filename}`;
+
+      exportedUrls.add(recipe.source_url);
       saveManifest(path.dirname(outputDir), exportedUrls);
       process.stdout.write('done\n');
     } catch (err) {

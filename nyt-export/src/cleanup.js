@@ -38,21 +38,21 @@ export function cleanupDeleted(currentUrls, outputDir) {
   const deletedSet = new Set(deletedUrls);
 
   for (const url of deletedUrls) {
-    const recipe = recipes.find((r) => r.sourceUrl === url);
-    if (recipe?.title) {
-      const pdfPath = path.join(pdfsDir, `${sanitizeFilename(recipe.title)}.pdf`);
+    const recipe = recipes.find((r) => r.source_url === url);
+    if (recipe?.name) {
+      const pdfPath = path.join(pdfsDir, `${sanitizeFilename(recipe.name)}.pdf`);
       if (fs.existsSync(pdfPath)) {
         fs.unlinkSync(pdfPath);
         console.log(`  Deleted PDF : ${path.basename(pdfPath)}`);
       }
-      console.log(`  Removed     : ${recipe.title}`);
+      console.log(`  Removed     : ${recipe.name}`);
     } else {
       console.log(`  Removed     : ${url}`);
     }
   }
 
   // Update recipes.json
-  const updatedRecipes = recipes.filter((r) => !deletedSet.has(r.sourceUrl));
+  const updatedRecipes = recipes.filter((r) => !deletedSet.has(r.source_url));
   fs.writeFileSync(recipesPath, JSON.stringify(updatedRecipes, null, 2), 'utf-8');
 
   // Update manifest

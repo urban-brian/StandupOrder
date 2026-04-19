@@ -6,28 +6,27 @@ import { exportPdfs, loadManifest } from './src/pdf-exporter.js';
 import { exportPaprika } from './src/paprika.js';
 import { exportJson } from './src/json-exporter.js';
 import { cleanupDeleted } from './src/cleanup.js';
+import { selectFormats } from './src/formats.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = path.join(__dirname, 'output');
 const PDF_DIR = path.join(OUTPUT_DIR, 'pdfs');
 
-// In CI, skip PDFs by default (large/slow). Set EXPORT_PDF=true to enable in CI.
-const IS_CI = process.env.CI === 'true';
-const EXPORT_PDF = process.env.EXPORT_PDF === 'true' || !IS_CI;
-
 async function main() {
   console.log('=== NYT Cooking Recipe Exporter ===\n');
+
+  const formats = await selectFormats();
 
   let browser;
   try {
     const { browser: b, page } = await launchBrowser();
     browser = b;
 
-    // 1. Collect all current recipe URLs from the box (single fetch)
+    // 1. Collect all current recipe URLs from the box
     const currentUrls = await collectRecipeUrls(page);
     const currentSet = new Set(currentUrls);
 
-    // 2. Remove anything that was previously exported but is no longer in the box
+    // 2. Remove anything previously exported but no longer in the box
     cleanupDeleted(currentSet, OUTPUT_DIR);
 
     // 3. Scrape only recipes not yet exported
@@ -46,26 +45,20 @@ async function main() {
 
     if (recipes.length === 0) return;
 
-    // 4. Export JSON (merges with existing)
-    exportJson(recipes, OUTPUT_DIR);
+    // 4. Export selected formats
+    if (formats.json) exportJson(recipes, OUTPUT_DIR);
 
-    // 5. Export PDFs (always locally; opt-in via EXPORT_PDF=true in CI)
-    if (EXPORT_PDF) {
-      await exportPdfs(page, recipes, PDF_DIR, exportedUrls);
-    }
+    if (formats.pdf) await exportPdfs(page, recipes, PDF_DIR, exportedUrls);
 
-    // 6. Export Paprika archive
-    await exportPaprika(recipes, OUTPUT_DIR);
+    if (formats.paprika) await exportPaprika(recipes, OUTPUT_DIR);
 
     // Summary
     console.log('=== Export complete ===');
     console.log(`  New recipes      : ${recipes.length}`);
-    console.log(`  JSON             : ${path.join(OUTPUT_DIR, 'recipes.json')}`);
-    if (EXPORT_PDF) {
-      console.log(`  PDFs saved to    : ${PDF_DIR}`);
-    }
-    console.log(`  Paprika file     : ${path.join(OUTPUT_DIR, 'NYT-Recipes.paprikarecipes')}`);
-    console.log('\nTo import into Paprika: open the app and use File \u2192 Import (or drag the .paprikarecipes file onto the app).');
+    if (formats.json)    console.log(`  JSON             : ${path.join(OUTPUT_DIR, 'recipes.json')}`);
+    if (formats.pdf)     console.log(`  PDFs saved to    : ${PDF_DIR}`);
+    if (formats.paprika) console.log(`  Paprika file     : ${path.join(OUTPUT_DIR, 'NYT-Recipes.paprikarecipes')}`);
+    if (formats.paprika) console.log('\nTo import into Paprika: open the app and use File \u2192 Import (or drag the .paprikarecipes file onto the app).');
   } catch (err) {
     console.error('\nFatal error:', err.message);
     process.exitCode = 1;

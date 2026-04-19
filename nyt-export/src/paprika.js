@@ -6,27 +6,37 @@ import { ZipBuilder } from './zip.js';
 
 const gzip = promisify(zlib.gzip);
 
+function formatMinutes(mins) {
+  if (!mins) return '';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h ? `${h} hr${h > 1 ? 's' : ''}${m ? ` ${m} min` : ''}` : `${m} min`;
+}
+
 function buildPaprikaRecord(recipe) {
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const ingredients = Array.isArray(recipe.ingredients)
+    ? recipe.ingredients.join('\n')
+    : (recipe.ingredients || '');
 
   return {
-    uid: crypto.randomUUID(),
-    name: recipe.title || 'Untitled Recipe',
+    uid: recipe.uid || crypto.randomUUID(),
+    name: recipe.name || 'Untitled Recipe',
     description: recipe.description || '',
-    ingredients: recipe.ingredients || '',
+    ingredients,
     directions: recipe.directions || '',
     servings: recipe.servings || '',
-    total_time: recipe.totalTime || '',
-    prep_time: recipe.prepTime || '',
-    cook_time: recipe.cookTime || '',
+    total_time: formatMinutes(recipe.total_time),
+    prep_time: formatMinutes(recipe.prep_time),
+    cook_time: formatMinutes(recipe.active_cook_time),
     source: 'NYT Cooking',
-    source_url: recipe.sourceUrl || '',
-    image_url: recipe.imageUrl || '',
+    source_url: recipe.source_url || '',
+    image_url: recipe.image_url || '',
     photo_url: '',
     photo: '',
     photo_hash: '',
-    categories: ['NYT Cooking'],
-    notes: '',
+    categories: recipe.categories?.length ? recipe.categories : ['NYT Cooking'],
+    notes: recipe.notes || '',
     rating: 0,
     difficulty: '',
     on_favorites: false,

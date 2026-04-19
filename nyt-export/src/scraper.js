@@ -5,6 +5,9 @@ const PAGE_LOAD_WAIT_MS = 2000;
 const RECIPE_CARD_LINK_SELECTOR = 'a[href^="/recipes/"]';
 const NEXT_PAGE_SELECTOR = 'a[aria-label="Next page"], a[rel="next"], a[href*="page="]:last-of-type';
 
+const FISH_TERMS = ['fish','seafood','salmon','tuna','shrimp','cod','halibut','tilapia','trout','bass','anchovy','sardine','mackerel','clam','lobster','crab','scallop','mussel','squid','octopus'];
+const PASTA_TERMS = ['pasta','noodle','spaghetti','penne','rigatoni','linguine','fettuccine','lasagna','gnocchi','orzo','tagliatelle','bucatini','ziti','farfalle','fusilli','ravioli','tortellini'];
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -20,15 +23,7 @@ async function getUrlsFromPage(page) {
   }, RECIPE_CARD_LINK_SELECTOR);
 }
 
-async function hasNextPage(page) {
-  // Check for a visible "Next" pagination link
-  return page.evaluate((sel) => {
-    const el = document.querySelector(sel);
-    return !!el && el.offsetParent !== null;
-  }, NEXT_PAGE_SELECTOR);
-}
-
-async function collectRecipeUrls(page) {
+export async function collectRecipeUrls(page) {
   const seen = new Set();
   let pageNum = 1;
 
@@ -49,13 +44,10 @@ async function collectRecipeUrls(page) {
     urls.forEach((u) => seen.add(u));
     process.stdout.write(`${urls.length} recipes (total: ${seen.size})\n`);
 
-    // Try URL-based next page first
-    const nextUrl = pageUrl(pageNum + 1);
     const nextExists = await page.evaluate((sel) => !!document.querySelector(sel), NEXT_PAGE_SELECTOR);
 
-    // Also try loading page N+1 directly and see if it has recipes
     if (!nextExists) {
-      // Speculatively load next page to confirm it exists
+      const nextUrl = pageUrl(pageNum + 1);
       await page.goto(nextUrl, { waitUntil: 'networkidle2' });
       await sleep(PAGE_LOAD_WAIT_MS);
       const nextUrls = await getUrlsFromPage(page);
@@ -73,7 +65,6 @@ async function collectRecipeUrls(page) {
   return urls;
 }
 
-
 async function extractRecipeData(page, url, index, total) {
   process.stdout.write(`[${index}/${total}] Scraping: ${url} ... `);
 
@@ -81,75 +72,149 @@ async function extractRecipeData(page, url, index, total) {
     await page.goto(url, { waitUntil: 'networkidle2' });
     await sleep(INTER_RECIPE_DELAY_MS);
 
-    const data = await page.evaluate(() => {
-      const getText = (sel) => document.querySelector(sel)?.textContent?.trim() ?? '';
-      const getMeta = (prop) =>
-        document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') ??
-        document.querySelector(`meta[name="${prop}"]`)?.getAttribute('content') ??
-        '';
+    const data = await page.evaluate((fishTerms, pastaTerms) => {
+      // ── Helpers ──────────────────────────────────────────────────────────────
+      function parseIsoDuration(str) {
+        const m = (str || '').match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
+        if (!m) return null;
+        const minutes = parseInt(m[1] || 0) * 60 + parseInt(m[2] || 0);
+        return minutes || null;
+      }
 
-      // Title
-      const title =
-        getText('h1[class*="recipe-title"], h1[class*="RecipeTitle"], h1') || document.title;
+      function extractId(href) {
+        const m = href.match(/\/recipes\/(\d+)-/);
+        return m ? m[1] : null;
+      }
 
-      // Description
-      const description =
+      function toArray(val) {
+        if (!val) return [];
+        return Array.isArray(val) ? val : [val];
+      }
+
+      function getMetaContent(prop) {
+        return (
+          document.querySelector(`meta[property="${prop}"]`)?.getAttribute('content') ||
+          document.querySelector(`meta[name="${prop}"]`)?.getAttribute('content') ||
+          ''
+        );
+      }
+
+      function getText(sel) {
+        return document.querySelector(sel)?.textContent?.trim() ?? '';
+      }
+
+      // ── JSON-LD extraction ────────────────────────────────────────────────
+      let ld = null;
+      document.querySelectorAll('script[type="application/ld+json"]').forEach((el) => {
+        try {
+          const parsed = JSON.parse(el.textContent);
+          const candidates = Array.isArray(parsed) ? parsed : [parsed];
+          for (const c of candidates) {
+            if (c['@type'] === 'Recipe' || (Array.isArray(c['@type']) && c['@type'].includes('Recipe'))) {
+              ld = c;
+              break;
+            }
+          }
+        } catch { /* malformed JSON-LD */ }
+      });
+
+      const sourceUrl = window.location.href;
+      const id = extractId(sourceUrl);
+
+      // ── Fields from JSON-LD (preferred) with CSS fallbacks ───────────────
+      const name = ld?.name || getText('h1[class*="recipe-title"], h1[class*="RecipeTitle"], h1') || document.title;
+
+      const description = ld?.description ||
         getText('[class*="recipe-summary"], [class*="RecipeSummary"], [class*="topnote"]') ||
-        getMeta('og:description');
+        getMetaContent('og:description');
 
-      // Image
-      const imageUrl =
-        getMeta('og:image') ||
+      const rawImage = ld?.image;
+      const image_url = (Array.isArray(rawImage) ? rawImage[0] : rawImage) ||
+        getMetaContent('og:image') ||
         document.querySelector('img[class*="recipe-image"], img[class*="RecipeImage"]')?.src ||
         '';
 
-      // Servings / yield
-      const servings = getText(
-        '[class*="yield"], [class*="Yield"], [data-testid*="yield"], [data-testid*="serving"]'
-      );
+      const total_time = parseIsoDuration(ld?.totalTime) ??
+        (() => { const t = getText('[class*="total-time"], [class*="TotalTime"], [data-testid*="total-time"]'); return t ? null : null; })();
 
-      // Times
-      const totalTime = getText(
-        '[class*="total-time"], [class*="TotalTime"], [data-testid*="total-time"]'
-      );
-      const prepTime = getText(
-        '[class*="prep-time"], [class*="PrepTime"], [data-testid*="prep-time"]'
-      );
-      const cookTime = getText(
-        '[class*="cook-time"], [class*="CookTime"], [data-testid*="cook-time"]'
-      );
+      const prep_time = parseIsoDuration(ld?.prepTime) ?? null;
+      const active_cook_time = parseIsoDuration(ld?.cookTime) ?? null;
 
-      // Ingredients
-      const ingredientEls = document.querySelectorAll(
-        '[class*="ingredient"] li, [data-testid*="ingredient"] li, ul[class*="Ingredient"] li'
-      );
-      const ingredients = Array.from(ingredientEls)
-        .map((el) => el.textContent.trim())
-        .filter(Boolean)
-        .join('\n');
+      const rawYield = ld?.recipeYield;
+      const servings = (Array.isArray(rawYield) ? rawYield[0] : rawYield)?.replace(/\s*servings?/i, '').trim() ||
+        getText('[class*="yield"], [class*="Yield"], [data-testid*="yield"], [data-testid*="serving"]') ||
+        null;
 
-      // Steps / directions
-      const stepEls = document.querySelectorAll(
-        '[class*="step"] li, [data-testid*="step"] li, ol[class*="Step"] li, [class*="instructions"] li'
-      );
-      const directions = Array.from(stepEls)
-        .map((el) => el.textContent.trim())
-        .filter(Boolean)
-        .join('\n');
+      // Ingredients — JSON-LD gives a clean array
+      const ingredients = ld?.recipeIngredient?.length
+        ? ld.recipeIngredient
+        : Array.from(document.querySelectorAll('[class*="ingredient"] li, [data-testid*="ingredient"] li, ul[class*="Ingredient"] li'))
+            .map((el) => el.textContent.trim()).filter(Boolean);
+
+      // Directions — join step objects/strings into one string
+      const rawInstructions = ld?.recipeInstructions;
+      let directions = '';
+      if (Array.isArray(rawInstructions) && rawInstructions.length) {
+        directions = rawInstructions
+          .map((step) => (typeof step === 'string' ? step : step.text || ''))
+          .filter(Boolean)
+          .join('\n');
+      } else {
+        directions = Array.from(document.querySelectorAll(
+          '[class*="step"] li, [data-testid*="step"] li, ol[class*="Step"] li, [class*="instructions"] li'
+        )).map((el) => el.textContent.trim()).filter(Boolean).join('\n');
+      }
+
+      // Notes — only in HTML, not JSON-LD
+      const notes = getText('[class*="topnote"], [class*="Topnote"], [class*="cook-note"], [class*="CookNote"], [class*="tip"]:not(script)') || null;
+
+      // Cuisine
+      const cuisine_type = ld?.recipeCuisine || null;
+
+      // Categories / tags
+      const kwRaw = ld?.keywords;
+      const keywords = typeof kwRaw === 'string'
+        ? kwRaw.split(',').map((s) => s.trim()).filter(Boolean)
+        : toArray(kwRaw);
+      const recipeCategory = toArray(ld?.recipeCategory);
+      const categories = [...new Set([...keywords, ...recipeCategory])].filter(Boolean);
+
+      // Dietary flags
+      const diets = toArray(ld?.suitableForDiet).map((s) => s.toLowerCase());
+      const is_vegetarian = diets.some((d) => d.includes('vegetarian'));
+
+      // Infer fish / pasta from combined keywords + name
+      const haystack = [...categories, name].join(' ').toLowerCase();
+      const is_fish  = fishTerms.some((t) => haystack.includes(t));
+      const is_pasta = pastaTerms.some((t) => haystack.includes(t));
 
       return {
-        title,
-        description,
-        imageUrl,
+        id: id || crypto.randomUUID(),
+        uid: id || null,
+        name,
+        source_url: sourceUrl,
+        total_time,
+        active_cook_time,
+        prep_time,
         servings,
-        totalTime,
-        prepTime,
-        cookTime,
         ingredients,
         directions,
-        sourceUrl: window.location.href,
+        notes,
+        description,
+        cuisine_type,
+        spice_level: null,
+        make_ahead_potential: null,
+        is_vegetarian,
+        is_fish,
+        is_pasta,
+        categories,
+        image_url,
+        pdf_path: null,          // populated by pdf-exporter after saving
+        source: 'nyt_cooking',
+        imported_at: new Date().toISOString(),
+        approved: true,
       };
-    });
+    }, FISH_TERMS, PASTA_TERMS);
 
     process.stdout.write('done\n');
     return data;
@@ -171,5 +236,3 @@ export async function scrapeRecipeData(page, urls) {
   }
   return recipes;
 }
-
-export { collectRecipeUrls };
