@@ -4,7 +4,7 @@ import { requireAdmin } from '../auth.js';
 import { load, get, set } from '../store.js';
 import { getAllRecipes, updateRecipe, deleteRecipe, approveRecipe, formatTime, spiceBadge } from '../recipes.js';
 import { commitSession } from '../store.js';
-import { toast, setNav, renderRecipeEditor } from '../ui.js';
+import { toast, setNav } from '../ui.js';
 import { navigate } from '../router.js';
 
 let activeTab = 'pending';

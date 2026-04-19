@@ -1,7 +1,7 @@
 // js/planner.js — Plan generation + approval
 
 import { get, set, getCurrentPlan, getApprovedRecipes } from './store.js';
-import { getCurrentVotes, getCurrentWeekLabel } from './votes.js';
+import { getVoteState as getCurrentVotes, getCurrentWeekLabel } from './votes.js';
 import { generateWeeklyPlan } from './claude.js';
 import { HISTORY_WEEKS } from './config.js';
 
