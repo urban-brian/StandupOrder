@@ -12,18 +12,21 @@ export function saveClaudeKey(key) {
   localStorage.setItem(CLAUDE_KEY, key);
 }
 
-async function callClaude(messages, system = '') {
+async function callClaude(messages, system = '', usePdfBeta = false) {
   const key = getClaudeKey();
   if (!key) throw new Error('Claude API key not set. Go to Settings.');
 
+  const headers = {
+    'x-api-key': key,
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true',
+    'content-type': 'application/json',
+  };
+  if (usePdfBeta) headers['anthropic-beta'] = 'pdfs-2024-09-25';
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: {
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'pdfs-2024-09-25',
-      'content-type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       model: CLAUDE_MODEL,
       max_tokens: 4096,
@@ -83,7 +86,7 @@ export async function extractRecipeMetadata(pdfBase64) {
     ],
   };
 
-  const text = await callClaude([userMessage], system);
+  const text = await callClaude([userMessage], system, true);
 
   // Parse JSON from response
   const jsonMatch = text.match(/\{[\s\S]*\}/);
