@@ -17,7 +17,7 @@ export const DATA_FILES = {
   suggestions: 'data/suggestions.json',
 };
 
-export const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+export const CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 // Night type definitions
 export const NIGHT_TYPES = {
