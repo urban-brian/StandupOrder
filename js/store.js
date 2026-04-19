@@ -23,6 +23,10 @@ export async function load(key) {
     state[key] = data ?? defaultFor(key);
     loading[key] = null;
     return state[key];
+  }).catch(() => {
+    state[key] = defaultFor(key);
+    loading[key] = null;
+    return state[key];
   });
   return loading[key];
 }
